@@ -10,14 +10,15 @@ function isNonNegativeInteger(n) {
 exports.generateIdentityKeyPair = curve.generateKeyPair;
 
 exports.generateRegistrationId = function() {
-    var registrationId = Uint16Array.from(nodeCrypto.randomBytes(2))[0];
+    const registrationId = nodeCrypto.randomBytes(2).readUInt16BE(0);
     return registrationId & 0x3fff;
 };
 
 exports.generateSignedPreKey = function(identityKeyPair, signedKeyId) {
-    if (!(identityKeyPair.privKey instanceof Buffer) ||
+    if (!identityKeyPair ||
+        !Buffer.isBuffer(identityKeyPair.privKey) ||
         identityKeyPair.privKey.byteLength != 32 ||
-        !(identityKeyPair.pubKey instanceof Buffer) ||
+        !Buffer.isBuffer(identityKeyPair.pubKey) ||
         identityKeyPair.pubKey.byteLength != 33) {
         throw new TypeError('Invalid argument for identityKeyPair');
     }

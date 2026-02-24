@@ -7,8 +7,9 @@ const assert = require('assert');
 
 
 function assertBuffer(value) {
-    if (!(value instanceof Buffer)) {
-        throw TypeError(`Expected Buffer instead of: ${value.constructor.name}`);
+    if (!Buffer.isBuffer(value)) {
+        const name = value == null ? String(value) : value.constructor.name;
+        throw TypeError(`Expected Buffer instead of: ${name}`);
     }
     return value;
 }
@@ -61,29 +62,34 @@ function deriveSecrets(input, salt, info, chunks) {
     chunks = chunks || 3;
     assert(chunks >= 1 && chunks <= 3);
     const PRK = calculateMAC(salt, input);
-    const infoArray = new Uint8Array(info.byteLength + 1 + 32);
-    infoArray.set(info, 32);
+    const infoOffset = 32;
+    const infoArray = Buffer.allocUnsafe(info.byteLength + 1 + infoOffset);
+    infoArray.fill(0, 0, infoOffset);
+    info.copy(infoArray, infoOffset);
     infoArray[infoArray.length - 1] = 1;
-    const signed = [calculateMAC(PRK, Buffer.from(infoArray.slice(32)))];
+    const signed = [calculateMAC(PRK, infoArray.slice(infoOffset))];
     if (chunks > 1) {
         infoArray.set(signed[signed.length - 1]);
         infoArray[infoArray.length - 1] = 2;
-        signed.push(calculateMAC(PRK, Buffer.from(infoArray)));
+        signed.push(calculateMAC(PRK, infoArray));
     }
     if (chunks > 2) {
         infoArray.set(signed[signed.length - 1]);
         infoArray[infoArray.length - 1] = 3;
-        signed.push(calculateMAC(PRK, Buffer.from(infoArray)));
+        signed.push(calculateMAC(PRK, infoArray));
     }
     return signed;
 }
 
 function verifyMAC(data, key, mac, length) {
+    assertBuffer(data);
+    assertBuffer(key);
+    assertBuffer(mac);
     const calculatedMac = calculateMAC(key, data).slice(0, length);
     if (mac.length !== length || calculatedMac.length !== length) {
         throw new Error("Bad MAC length");
     }
-    if (!mac.equals(calculatedMac)) {
+    if (!nodeCrypto.timingSafeEqual(mac, calculatedMac)) {
         throw new Error("Bad MAC");
     }
 }
