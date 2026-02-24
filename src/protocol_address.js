@@ -4,11 +4,11 @@
 class ProtocolAddress {
 
     static from(encodedAddress) {
-        if (typeof encodedAddress !== 'string' || !encodedAddress.match(/.*\.\d+/)) {
+        if (typeof encodedAddress !== 'string' || !/^[^.]+\.\d+$/.test(encodedAddress)) {
             throw new Error('Invalid address encoding');
         }
         const parts = encodedAddress.split('.');
-        return new this(parts[0], parseInt(parts[1]));
+        return new this(parts[0], parseInt(parts[1], 10));
     }
 
     constructor(id, deviceId) {

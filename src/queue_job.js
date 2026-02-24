@@ -10,11 +10,10 @@
 const _queueAsyncBuckets = new Map();
 const _gcLimit = 10000;
 
-async function _asyncQueueExecutor(queue, cleanup) {
-    let offt = 0;
-    while (true) {
-        let limit = Math.min(queue.length, _gcLimit); // Break up thundering hurds for GC duty.
-        for (let i = offt; i < limit; i++) {
+async function _asyncQueueExecutor(bucket, queue) {
+    while (queue.length) {
+        const limit = Math.min(queue.length, _gcLimit); // Break up thundering hurds for GC duty.
+        for (let i = 0; i < limit; i++) {
             const job = queue[i];
             try {
                 job.resolve(await job.awaitable());
@@ -22,20 +21,12 @@ async function _asyncQueueExecutor(queue, cleanup) {
                 job.reject(e);
             }
         }
-        if (limit < queue.length) {
-            /* Perform lazy GC of queue for faster iteration. */
-            if (limit >= _gcLimit) {
-                queue.splice(0, limit);
-                offt = 0;
-            } else {
-                offt = limit;
-            }
-        } else {
-            break;
-        }
+        queue.splice(0, limit); // Perform lazy GC of queue for faster iteration.
     }
-    cleanup();
+
+    _queueAsyncBuckets.delete(bucket);
 }
+
 
 module.exports = function(bucket, awaitable) {
     /* Run the async awaitable only when all other async calls registered
@@ -63,7 +54,7 @@ module.exports = function(bucket, awaitable) {
     }));
     if (inactive) {
         /* An executor is not currently active; Start one now. */
-        _asyncQueueExecutor(queue, () => _queueAsyncBuckets.delete(bucket));
+        _asyncQueueExecutor(bucket, queue);
     }
     return job;
 };

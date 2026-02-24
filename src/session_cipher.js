@@ -13,12 +13,18 @@ const queueJob = require('./queue_job');
 const VERSION = 3;
 
 function assertBuffer(value) {
-    if (!(value instanceof Buffer)) {
-        throw TypeError(`Expected Buffer instead of: ${value.constructor.name}`);
+    if (!Buffer.isBuffer(value)) {
+        const name = value == null ? String(value) : value.constructor.name;
+        throw TypeError(`Expected Buffer instead of: ${name}`);
     }
     return value;
 }
 
+const MESSAGE_KEYS_INFO = Buffer.from('WhisperMessageKeys');
+const RATCHET_INFO = Buffer.from('WhisperRatchet');
+const ZERO_SALT = Buffer.alloc(32);
+const MESSAGE_KEY_SEED = Buffer.from([1]);
+const CHAIN_KEY_SEED = Buffer.from([2]);
 
 class SessionCipher {
 
@@ -84,7 +90,7 @@ class SessionCipher {
             }
             this.fillMessageKeys(chain, chain.chainKey.counter + 1);
             const keys = crypto.deriveSecrets(chain.messageKeys[chain.chainKey.counter],
-                                              Buffer.alloc(32), Buffer.from("WhisperMessageKeys"));
+                                              ZERO_SALT, MESSAGE_KEYS_INFO);
             delete chain.messageKeys[chain.chainKey.counter];
             const msg = protobufs.WhisperMessage.create();
             msg.ephemeralKey = session.currentRatchet.ephemeralKeyPair.pubKey;
@@ -237,8 +243,7 @@ class SessionCipher {
         }
         const messageKey = chain.messageKeys[message.counter];
         delete chain.messageKeys[message.counter];
-        const keys = crypto.deriveSecrets(messageKey, Buffer.alloc(32),
-                                          Buffer.from("WhisperMessageKeys"));
+        const keys = crypto.deriveSecrets(messageKey, ZERO_SALT, MESSAGE_KEYS_INFO);
         const ourIdentityKey = await this.storage.getOurIdentity();
         const macInput = Buffer.alloc(messageProto.byteLength + (33 * 2) + 1);
         macInput.set(session.indexInfo.remoteIdentityKey);
@@ -263,11 +268,13 @@ class SessionCipher {
         if (chain.chainKey.key === undefined) {
             throw new errors.SessionError('Chain closed');
         }
-        const key = chain.chainKey.key;
-        chain.messageKeys[chain.chainKey.counter + 1] = crypto.calculateMAC(key, Buffer.from([1]));
-        chain.chainKey.key = crypto.calculateMAC(key, Buffer.from([2]));
-        chain.chainKey.counter += 1;
-        return this.fillMessageKeys(chain, counter);
+
+        while (chain.chainKey.counter < counter) {
+            const key = chain.chainKey.key;
+            chain.messageKeys[chain.chainKey.counter + 1] = crypto.calculateMAC(key, MESSAGE_KEY_SEED);
+            chain.chainKey.key = crypto.calculateMAC(key, CHAIN_KEY_SEED);
+            chain.chainKey.counter += 1;
+        }
     }
 
     maybeStepRatchet(session, remoteKey, previousCounter) {
@@ -296,7 +303,7 @@ class SessionCipher {
         let ratchet = session.currentRatchet;
         const sharedSecret = curve.calculateAgreement(remoteKey, ratchet.ephemeralKeyPair.privKey);
         const masterKey = crypto.deriveSecrets(sharedSecret, ratchet.rootKey,
-                                               Buffer.from("WhisperRatchet"), /*chunks*/ 2);
+                                               RATCHET_INFO, /*chunks*/ 2);
         const chainKey = sending ? ratchet.ephemeralKeyPair.pubKey : remoteKey;
         session.addChain(chainKey, {
             messageKeys: {},
